@@ -1,2 +1,2 @@
-# PID-Control-
-This will outline the program code for the control system used in the self balancing robot project 
+# sBalancingRobot 
+This will outline the program code for the sBalancing Robot for term project ME106.
