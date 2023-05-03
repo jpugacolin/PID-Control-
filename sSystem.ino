@@ -1,83 +1,116 @@
+#include <Arduino.h>
 #include <Wire.h>
 #include <LiquidCrystal.h>
-#include <MPU6050_tockn.h>
+#include <MPU6050.h>
 
-const int trigPin = 9; // Ultrasonic sensor Trig pin
-const int echoPin = 10; // Ultrasonic sensor Echo pin
-const int IN1 = 2; // L298N IN1
-const int IN2 = 3; // L298N IN2
-const int IN3 = 4; // L298N IN3
-const int IN4 = 5; // L298N IN4
-const int ENA = 6; // L298N ENA
-const int ENB = 7; // L298N ENB
-const int ledR = 11; // LED Red pin
-const int ledG = 12; // LED Green pin
-const int ledB = 13; // LED Blue pin
+MPU6050 mpu;
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 
-const float Kp = 40;
-const float Kd = 20;
+// motor driver pins
+#define ENA 6
+#define ENB 5
+#define IN1 22
+#define IN2 23
+#define IN3 24
+#define IN4 25
 
-LiquidCrystal lcd(8, A0, A1, A2, A3, A4, A5);
+// ultrasonic sensor pins
+#define trigPin 9
+#define echoPin 10
 
-MPU6050 mpu6050(Wire);
+// PID constants
+float kp = 12.5;
+float ki = 0.5;
+float kd = 0.5;
+float error = 0;
+float integral = 0;
+float derivative = 0;
+float previous_error = 0;
 
-float angle = 0, accAngle = 0, gyroRate = 0, lastError = 0, output = 0;
-long distance = 0;
-unsigned long time1 = 0, time2 = 0, cycleTime = 0, lastTime = 0;
+// motor speed variables
+int motorSpeedA = 0;
+int motorSpeedB = 0;
+
+// ultrasonic sensor variables
+long duration;
+int distance;
+
+// time interval variables
+unsigned long currentMillis;
+unsigned long previousMillis = 0;
+const unsigned long interval = 100; // interval in milliseconds
+
+// RGB LED variables
+int redPin = 13;
+int greenPin = 7;
+int bluePin = 8;
 
 void setup() {
-  Serial.begin(9600);
-  mpu6050.begin();
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
+  // initialize LCD display
+  lcd.begin(16, 2);
+  lcd.clear();
+  lcd.print("Self-Balancing");
+  lcd.setCursor(0, 1);
+  lcd.print("Robot");
+
+  // initialize MPU6050 sensor
+  Wire.begin();
+  mpu.initialize();
+  mpu.dmpInitialize();
+  mpu.setDMPEnabled(true);
+
+  // initialize motor driver pins
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
-  pinMode(ENA, OUTPUT);
-  pinMode(ENB, OUTPUT);
-  pinMode(ledR, OUTPUT);
-  pinMode(ledG, OUTPUT);
-  pinMode(ledB, OUTPUT);
-  lcd.begin(16, 2);
-  lcd.print("Self Balancing Bot");
-  delay(2000);
+
+  // initialize ultrasonic sensor pins
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  // initialize RGB LED pins
+  pinMode(redPin, OUTPUT);
+  pinMode(greenPin, OUTPUT);
+  pinMode(bluePin, OUTPUT);
 }
 
 void loop() {
-  time1 = micros();
+  currentMillis = millis();
 
-  // Ultrasonic sensor measurement
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-  distance = pulseIn(echoPin, HIGH) * 0.034 / 2;
+  // read MPU6050 sensor
+  int16_t ax, ay, az, gx, gy, gz;
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
-  // MPU6050 angle measurement
-  angle = 0.98 * (angle + gyroRate * cycleTime / 1000000) + 0.02 * accAngle;
-  gyroRate = mpu6050.getGyroAngleZ() / 131.0;
-  accAngle = atan2(-mpu6050.getAccY(), mpu6050.getAccZ()) * 180 / PI;
-  output = Kp * angle + Kd * (angle - lastError) / cycleTime;
-  lastError = angle;
+  // calculate pitch angle
+  float pitch = atan2(ax, sqrt(ay * ay + az * az)) * 180 / PI;
 
-  // Motor control
-  if (distance > 20) {
-    analogWrite(ENA, abs(output));
-    analogWrite(ENB, abs(output));
-    if (output > 0) {
-      digitalWrite(IN1, HIGH);
-      digitalWrite(IN2, LOW);
-      digitalWrite(IN3, LOW);
-      digitalWrite(IN4, HIGH);
-      digitalWrite(ledR, LOW);
-      digitalWrite(ledG, HIGH);
-      digitalWrite(ledB, LOW);
-    } else {
-      digitalWrite(IN1, LOW);
-      digitalWrite(IN2, HIGH);
-      digitalWrite(IN3, HIGH);
-      digitalWrite(IN4, LOW);
-      digitalWrite(ledR, HIGH);
-      digitalWrite(ledG,
+  // calculate PID output
+  error = pitch;
+  integral += error * interval / 1000.0;
+  derivative = (error - previous_error) / (interval / 1000.0);
+  float pidOutput = kp * error + ki * integral + kd * derivative;
+  previous_error = error;
+
+  // calculate motor speeds
+  motorSpeedA = (int)(pidOutput + 0.5);
+  motorSpeedB = (int)(pidOutput + 0.5);
+
+  // limit motor speeds to 255
+  if (motorSpeedA > 255) {
+    motorSpeedA = 255;
+  }
+  if (motorSpeedB > 255) {
+    motorSpeedB = 255;
+  }
+
+  // set motor directions and speeds
+  if (motorSpeedA >= 0) {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    analogWrite(ENA, motorSpeedA);
+  } else {
+    digitalWrite(IN1, LOW);
+    digitalWrite
