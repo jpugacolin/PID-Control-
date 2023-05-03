@@ -1,70 +1,83 @@
 #include <Wire.h>
 #include <LiquidCrystal.h>
-#include <MPU6050.h>
-#include <NewPing.h>
+#include <MPU6050_tockn.h>
 
-#define TRIGGER_PIN  12
-#define ECHO_PIN     13
-#define MAX_DISTANCE 200
+const int trigPin = 9; // Ultrasonic sensor Trig pin
+const int echoPin = 10; // Ultrasonic sensor Echo pin
+const int IN1 = 2; // L298N IN1
+const int IN2 = 3; // L298N IN2
+const int IN3 = 4; // L298N IN3
+const int IN4 = 5; // L298N IN4
+const int ENA = 6; // L298N ENA
+const int ENB = 7; // L298N ENB
+const int ledR = 11; // LED Red pin
+const int ledG = 12; // LED Green pin
+const int ledB = 13; // LED Blue pin
 
-NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
-MPU6050 mpu;
-LiquidCrystal lcd(7, 6, 5, 4, 3, 2);
+const float Kp = 40;
+const float Kd = 20;
 
-int motor1 = 9;
-int motor2 = 10;
-int motor3 = 11;
-int motor4 = 8;
-int motor_speed = 0;
-int motor_speed_offset = 0;
-int tilt_angle = 0;
-int tilt_angle_offset = 0;
-int max_motor_speed = 255;
-int min_motor_speed = 0;
-int max_tilt_angle = 45;
-int min_tilt_angle = -45;
-int target_tilt_angle = 0;
-int ultrasonic_distance = 0;
+LiquidCrystal lcd(8, A0, A1, A2, A3, A4, A5);
+
+MPU6050 mpu6050(Wire);
+
+float angle = 0, accAngle = 0, gyroRate = 0, lastError = 0, output = 0;
+long distance = 0;
+unsigned long time1 = 0, time2 = 0, cycleTime = 0, lastTime = 0;
 
 void setup() {
   Serial.begin(9600);
-  mpu.initialize();
+  mpu6050.begin();
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(ledR, OUTPUT);
+  pinMode(ledG, OUTPUT);
+  pinMode(ledB, OUTPUT);
   lcd.begin(16, 2);
-  pinMode(motor1, OUTPUT);
-  pinMode(motor2, OUTPUT);
-  pinMode(motor3, OUTPUT);
-  pinMode(motor4, OUTPUT);
+  lcd.print("Self Balancing Bot");
+  delay(2000);
 }
 
 void loop() {
-  // Read MPU6050 sensor data
-  int16_t ax, ay, az, gx, gy, gz;
-  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  time1 = micros();
 
-  // Calculate tilt angle
-  int acc_x = ax / 16384.0;
-  int acc_z = az / 16384.0;
-  tilt_angle = atan2(acc_x, acc_z) * 180.0 / PI;
+  // Ultrasonic sensor measurement
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  distance = pulseIn(echoPin, HIGH) * 0.034 / 2;
 
-  // Calculate motor speed based on tilt angle
-  motor_speed = tilt_angle - tilt_angle_offset;
-  motor_speed = map(motor_speed, min_tilt_angle, max_tilt_angle, min_motor_speed, max_motor_speed);
-  motor_speed += motor_speed_offset;
-  motor_speed = constrain(motor_speed, min_motor_speed, max_motor_speed);
+  // MPU6050 angle measurement
+  angle = 0.98 * (angle + gyroRate * cycleTime / 1000000) + 0.02 * accAngle;
+  gyroRate = mpu6050.getGyroAngleZ() / 131.0;
+  accAngle = atan2(-mpu6050.getAccY(), mpu6050.getAccZ()) * 180 / PI;
+  output = Kp * angle + Kd * (angle - lastError) / cycleTime;
+  lastError = angle;
 
-  // Adjust motor speeds
-  if (motor_speed > 0) {
-    analogWrite(motor1, motor_speed);
-    analogWrite(motor2, 0);
-    analogWrite(motor3, 0);
-    analogWrite(motor4, motor_speed);
-  } else if (motor_speed < 0) {
-    analogWrite(motor1, 0);
-    analogWrite(motor2, abs(motor_speed));
-    analogWrite(motor3, abs(motor_speed));
-    analogWrite(motor4, 0);
-  } else {
-    analogWrite(motor1, 0);
-    analogWrite(motor2, 0);
-    analogWrite(motor3, 0);
-    analogWrite
+  // Motor control
+  if (distance > 20) {
+    analogWrite(ENA, abs(output));
+    analogWrite(ENB, abs(output));
+    if (output > 0) {
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      digitalWrite(IN3, LOW);
+      digitalWrite(IN4, HIGH);
+      digitalWrite(ledR, LOW);
+      digitalWrite(ledG, HIGH);
+      digitalWrite(ledB, LOW);
+    } else {
+      digitalWrite(IN1, LOW);
+      digitalWrite(IN2, HIGH);
+      digitalWrite(IN3, HIGH);
+      digitalWrite(IN4, LOW);
+      digitalWrite(ledR, HIGH);
+      digitalWrite(ledG,
