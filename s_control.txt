@@ -1,0 +1,184 @@
+#include <Wire.h>
+#include <MPU6050.h>
+#include <PID_v1.h>
+
+// Define MPU6050 object
+MPU6050 mpu;
+
+// Define PID constants
+double Kp = 20;     // Proportional gain
+double Ki = 0.05;   // Integral gain
+double Kd = 3;      // Derivative gain
+
+// Define PID variables
+double angle, setpoint = 0;
+double pidInput, pidOutput;
+
+// Define PID objects
+PID_v1 pid(&pidInput, &pidOutput, &setpoint, Kp, Ki, Kd, DIRECT);
+
+// Define motor pins
+int ENA = 5;
+int IN1 = 6;
+int IN2 = 7;
+int IN3 = 8;
+int IN4 = 9;
+int ENB = 10;
+
+// Define variables for motor speed
+int motorSpeed = 0;
+int leftMotorSpeed = 0;
+int rightMotorSpeed = 0;
+
+// Define variables for balancing the robot
+double angleOffset = 0;
+double angleSum = 0;
+double angleAdjustment = 0;
+double pitchAngle = 0;
+double pitchAccel = 0;
+
+// Define variables for controlling the robot
+int maxSpeed = 100;
+int minSpeed = -100;
+
+void setup() {
+  // Start serial communication
+  Serial.begin(9600);
+  
+  // Initialize MPU6050
+  Wire.begin();
+  mpu.initialize();
+  
+  // Set MPU6050 offsets
+  mpu.setXAccelOffset(-1496);
+  mpu.setYAccelOffset(-880);
+  mpu.setZAccelOffset(1527);
+  mpu.setXGyroOffset(41);
+  mpu.setYGyroOffset(-44);
+  mpu.setZGyroOffset(7);
+  
+  // Set motor pins as output
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENB, OUTPUT);
+
+  // Set PID parameters
+  pid.SetMode(AUTOMATIC);
+  pid.SetSampleTime(10);
+  pid.SetOutputLimits(minSpeed, maxSpeed);
+}
+
+void loop() {
+  // Read MPU6050 values
+  mpu.getMotion6(&mpu.ax, &mpu.ay, &mpu.az, &mpu.gx, &mpu.gy, &mpu.gz);
+  
+  // Calculate pitch angle from accelerometer data
+  pitchAccel = atan2(mpu.ax, sqrt(pow(mpu.ay, 2) + pow(mpu.az, 2))) * 180 / M_PI;
+  
+  // Calculate pitch angle from gyro data
+  pitchAngle += mpu.gy / 131.0 * 0.01;
+  
+  // Combine pitch angle from accelerometer and gyro data
+  angle = 0.98 * pitchAngle + 0.02 * pitchAccel;
+  
+  // Calculate angle adjustment
+  angleSum += angle;
+  angleAdjustment = angle * Kp + angleSum * Ki + (angle - pidInput) * Kd;
+  
+  // Update PID values
+  pidInput = angle;
+  pid.Compute();
+  
+  // Adjust motor speeds based on PID output
+  leftMotorSpeed = motorSpeed - pidOutput - angleAdjustment;
+  rightMotorSpeed = motorSpeed + pidOutput + angleAdjustment;
+  
+  // Set motor speeds
+  if (leftMotorSpeed > rightMotorSpeed) {
+    motor1.setSpeed(leftMotorSpeed);
+    motor1.run(FORWARD);
+    motor2.setSpeed(rightMotorSpeed);
+    motor2.run(FORWARD);
+} else {
+    motor1.setSpeed(leftMotorSpeed);
+    motor1.run(FORWARD);
+    motor2.setSpeed(rightMotorSpeed);
+    motor2.run(FORWARD);
+}
+
+// Control the motors
+if (leftMotorSpeed > rightMotorSpeed) {
+  motor1.setSpeed(leftMotorSpeed);
+  motor1.run(FORWARD);
+  motor2.setSpeed(rightMotorSpeed);
+  motor2.run(FORWARD);
+} else {
+  motor1.setSpeed(rightMotorSpeed);
+  motor1.run(FORWARD);
+  motor2.setSpeed(leftMotorSpeed);
+  motor2.run(FORWARD);
+}
+
+// Read the MPU6050 sensor data again
+mpu6050.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+// Update the PID control loop
+angle = atan2(ax, az) * RAD_TO_DEG;
+pidInput = angle;
+pid.Compute();
+
+ // Print the angle and motor speeds to the serial monitor
+  Serial.print("Angle: ");
+  Serial.print(angle);
+  Serial.print(", Left Motor Speed: ");
+  Serial.print(leftMotorSpeed);
+  Serial.print(", Right Motor Speed: ");
+  Serial.println(rightMotorSpeed);
+
+  // Check if the robot has fallen and stop the motors if it has
+  if (abs(angle) > 45) {
+    stopMotors();
+    while (true); // halt program
+  }
+}
+
+void setMotorSpeeds(int leftSpeed, int rightSpeed) {
+  // Set the left motor direction
+  if (leftSpeed >= 0) {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+  } else {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+    leftSpeed = abs(leftSpeed);
+  }
+
+  // Set the right motor direction
+  if (rightSpeed >= 0) {
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+  } else {
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
+    rightSpeed = abs(rightSpeed);
+  }
+
+  // Set the motor speeds
+  analogWrite(ENA, leftSpeed);
+  analogWrite(ENB, rightSpeed);
+}
+
+void stopMotors() {
+  // Stop the left motor
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  analogWrite(ENA, 0);
+
+  // Stop the right motor
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENB, 0);
+}
